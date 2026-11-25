@@ -1,0 +1,14 @@
+{
+  "job_title": "Example Analyst",
+  "company": "Example Company",
+  "institution": "Example College",
+  "degree_labels": [
+    "Diploma"
+  ],
+  "field_of_study": "Example programme",
+  "start_year": "2018",
+  "end_year": "2020",
+  "language": "Example language",
+  "fluent": true,
+  "proficiency": "Intermediate"
+}

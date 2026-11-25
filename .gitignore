@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+settings.json
+.env*
+*.pdf
+*.docx
+*.sqlite*
+*.db
+*.log
+.job-apply-firstrand-browser/
+playwright/.auth/
+workday_profile.json
+*.sqlite3-*

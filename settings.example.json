@@ -1,0 +1,48 @@
+{
+  "sources": [
+    {
+      "feed": "https://samford.co.za/recruit/?feed=job_feed",
+      "listing_prefix": "https://samford.co.za/recruit/job/",
+      "recipient_domains": [
+        "samford.co.za"
+      ]
+    },
+    {
+      "feed": "https://verveglobalrecruitment.co.za/?feed=job_feed",
+      "listing_prefix": "https://verveglobalrecruitment.co.za/job/",
+      "recipient_domains": [
+        "verveglobalrecruitment.co.za"
+      ]
+    }
+  ],
+  "titles": [
+    "data engineer",
+    "data analyst",
+    "software developer",
+    "software engineer",
+    "java developer"
+  ],
+  "exclude_titles": [
+    "senior",
+    "lead",
+    "principal",
+    "head",
+    "manager",
+    "architect"
+  ],
+  "locations": [
+    "Johannesburg",
+    "Gauteng",
+    "Pretoria",
+    "Sandton",
+    "South Africa (Remote)"
+  ],
+  "max_age_hours": 72,
+  "daily_limit": 3,
+  "enabled": false,
+  "cv": "cv.pdf",
+  "name": "Your full name",
+  "sender": "",
+  "smtp_host": "",
+  "smtp_port": 465
+}
