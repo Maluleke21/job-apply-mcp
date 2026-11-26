@@ -27,8 +27,7 @@ from playwright.async_api import async_playwright
 MCP = FastMCP("Workday draft applications")
 DEFAULT_BOARDS = ["https://firstrand.wd3.myworkdayjobs.com/FRB",
                   "https://myhcm.wd3.myworkdayjobs.com/Betway_Africa",
-                  "https://absa.wd3.myworkdayjobs.com/ABSAcareersite",
-                  "https://oldmutual.wd3.myworkdayjobs.com/Old_Mutual_Careers"]
+                  "https://absa.wd3.myworkdayjobs.com/ABSAcareersite"]
 CAREER_TITLES = ["developer", "software engineer", "data engineer", "data analyst",
                  "data scientist", "data modeller", "analytics engineer", "BI analyst",
                  "business intelligence", "ETL engineer", "AI engineer", "AI trainer",
@@ -220,9 +219,10 @@ def database():
     return db
 
 
-def flush(db, cfg):
+def flush(db, cfg, only_board=None):
     for key,title,url,ref,state,detail,path,digest in db.execute(
-            "SELECT id,title,url,ref,state,detail,cv_path,cv_hash FROM drafts WHERE pending=1").fetchall():
+            "SELECT id,title,url,ref,state,detail,cv_path,cv_hash FROM drafts WHERE pending=1 "
+            "AND (? IS NULL OR instr(id, ? || '|') = 1)", (only_board, only_board)).fetchall():
         employer = urlsplit(url).hostname.split(".")[0]
         attachment = None
         if path and state == "Ready to submit":
@@ -248,10 +248,11 @@ def retry_time(header, now):
         return fallback
 
 
-def scan_boards(db, cfg, errors):
+def scan_boards(db, cfg, errors, only_board=None):
     deferred = {}
     for board, until in db.execute(
-        "SELECT url, until FROM boards LEFT JOIN cooldowns ON boards.url=cooldowns.board"
+        "SELECT url, until FROM boards LEFT JOIN cooldowns ON boards.url=cooldowns.board "
+        "WHERE ? IS NULL OR url=?", (only_board, only_board)
     ).fetchall():
         now = datetime.now(timezone.utc)
         if until and until > now.timestamp():
@@ -282,20 +283,23 @@ async def worker(cfg):
         ctx = await browser.chromium.launch_persistent_context(str(BROWSER_DIR), headless=True)
         try:
             with closing(database()) as db:
-                flush(db, cfg)
-                boards = {board_of(b) for b in cfg.get("workday_boards", DEFAULT_BOARDS)}
-                try:
-                    boards.update(discover_boards(cfg))
-                except Exception as exc:
-                    errors.append(f"Employer search: {type(exc).__name__}")
+                only_board = board_of(cfg["workday_only_board"]) if cfg.get("workday_only_board") else None
+                flush(db, cfg, only_board)
+                boards = {only_board} if only_board else {board_of(b) for b in cfg.get("workday_boards", DEFAULT_BOARDS)}
+                if not only_board:
+                    try:
+                        boards.update(discover_boards(cfg))
+                    except Exception as exc:
+                        errors.append(f"Employer search: {type(exc).__name__}")
                 with db:
                     db.executemany("INSERT OR IGNORE INTO boards VALUES (?)", [(b,) for b in boards])
-                deferred = scan_boards(db, cfg, errors)
+                deferred = scan_boards(db, cfg, errors, only_board)
                 page = ctx.pages[0] if ctx.pages else await ctx.new_page()
                 page.set_default_timeout(10000)
                 todo = db.execute("""SELECT id,url,state,detail,title,description,cv_path,cv_hash FROM drafts
-                    WHERE state IN ('Queued','Needs attention') ORDER BY checked,id LIMIT ?""",
-                                  (cfg.get("workday_batch_size", 10),)).fetchall()
+                    WHERE state IN ('Queued','Needs attention') AND (? IS NULL OR instr(id, ? || '|') = 1)
+                    ORDER BY checked,id LIMIT ?""",
+                                  (only_board, only_board, cfg.get("workday_batch_size", 10))).fetchall()
                 for key,url,old,old_detail,title,description,path,digest in todo:
                     try:
                         if not path:
@@ -315,7 +319,7 @@ async def worker(cfg):
                         db.execute("UPDATE drafts SET state=?,detail=?,pending=?,checked=? WHERE id=?",
                                    (state, detail, int(state != "Already applied" and (old,old_detail) != (state,detail)),
                                     datetime.now(timezone.utc).isoformat(), key))
-                    flush(db, cfg)
+                    flush(db, cfg, only_board)
                 if errors:
                     notify(cfg, "Workday discovery needs attention", "\n".join(errors))
                 return {"checked": len(todo), "source_errors": errors, **({"deferred_boards": deferred} if deferred else {})}
