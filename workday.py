@@ -11,6 +11,8 @@ import ssl
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener
@@ -205,6 +207,7 @@ def database():
     db = sqlite3.connect(ROOT / "workday.sqlite3", timeout=30)
     db.executescript("""
         CREATE TABLE IF NOT EXISTS boards(url TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS cooldowns(board TEXT PRIMARY KEY, until INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,title TEXT,url TEXT,ref TEXT,
           state TEXT DEFAULT 'Queued',detail TEXT DEFAULT '',pending INTEGER DEFAULT 0,checked TEXT DEFAULT '');
     """)
@@ -232,6 +235,44 @@ def flush(db, cfg):
             db.execute("UPDATE drafts SET pending=0 WHERE id=?", (key,))
 
 
+def retry_time(header, now):
+    fallback = now + timedelta(hours=4)
+    try:
+        if header and header.isascii() and header.isdigit():
+            retry = now + timedelta(seconds=int(header))
+        else:
+            retry = parsedate_to_datetime(header)
+        return max(now + timedelta(minutes=1), retry)
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        return fallback
+
+
+def scan_boards(db, cfg, errors):
+    deferred = {}
+    for board, until in db.execute(
+        "SELECT url, until FROM boards LEFT JOIN cooldowns ON boards.url=cooldowns.board"
+    ).fetchall():
+        now = datetime.now(timezone.utc)
+        if until and until > now.timestamp():
+            deferred[board] = datetime.fromtimestamp(until, timezone.utc).isoformat()
+            continue
+        try:
+            for job in listings(board, cfg):
+                with db:
+                    db.execute("INSERT INTO drafts(id,title,url,ref,description) VALUES (?,?,?,?,?) "
+                               "ON CONFLICT(id) DO UPDATE SET description=excluded.description", job)
+        except HTTPError as exc:
+            if exc.code == 429:
+                retry = retry_time((exc.headers or {}).get("Retry-After"), datetime.now(timezone.utc))
+                with db:
+                    db.execute("INSERT OR REPLACE INTO cooldowns VALUES (?,?)", (board, int(retry.timestamp())))
+                deferred[board] = retry.isoformat()
+            errors.append(f"{board}: HTTP {exc.code} {exc.reason}")
+        except Exception as exc:
+            errors.append(f"{board}: {type(exc).__name__}")
+    return deferred
+
+
 async def worker(cfg):
     if cfg.get("workday_enabled") is not True:
         return {"status": "Workday disabled"}
@@ -248,13 +289,7 @@ async def worker(cfg):
                     errors.append(f"Employer search: {type(exc).__name__}")
                 with db:
                     db.executemany("INSERT OR IGNORE INTO boards VALUES (?)", [(b,) for b in boards])
-                for board, in db.execute("SELECT url FROM boards").fetchall():
-                    try:
-                        with db:
-                            for job in listings(board, cfg):
-                                db.execute("INSERT INTO drafts(id,title,url,ref,description) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET description=excluded.description", job)
-                    except Exception as exc:
-                        errors.append(f"{board}: {type(exc).__name__}")
+                deferred = scan_boards(db, cfg, errors)
                 page = ctx.pages[0] if ctx.pages else await ctx.new_page()
                 page.set_default_timeout(10000)
                 todo = db.execute("""SELECT id,url,state,detail,title,description,cv_path,cv_hash FROM drafts
@@ -282,7 +317,7 @@ async def worker(cfg):
                     flush(db, cfg)
                 if errors:
                     notify(cfg, "Workday discovery needs attention", "\n".join(errors))
-                return {"checked": len(todo), "source_errors": errors}
+                return {"checked": len(todo), "source_errors": errors, **({"deferred_boards": deferred} if deferred else {})}
         finally:
             await ctx.close()
 
