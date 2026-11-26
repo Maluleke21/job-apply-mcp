@@ -27,7 +27,8 @@ from playwright.async_api import async_playwright
 MCP = FastMCP("Workday draft applications")
 DEFAULT_BOARDS = ["https://firstrand.wd3.myworkdayjobs.com/FRB",
                   "https://myhcm.wd3.myworkdayjobs.com/Betway_Africa",
-                  "https://absa.wd3.myworkdayjobs.com/ABSAcareersite"]
+                  "https://absa.wd3.myworkdayjobs.com/ABSAcareersite",
+                  "https://oldmutual.wd3.myworkdayjobs.com/Old_Mutual_Careers"]
 CAREER_TITLES = ["developer", "software engineer", "data engineer", "data analyst",
                  "data scientist", "data modeller", "analytics engineer", "BI analyst",
                  "business intelligence", "ETL engineer", "AI engineer", "AI trainer",
