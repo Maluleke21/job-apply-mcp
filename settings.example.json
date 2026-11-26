@@ -44,5 +44,6 @@
   "name": "Your full name",
   "sender": "",
   "smtp_host": "",
-  "smtp_port": 465
+  "smtp_port": 465,
+  "workday_enabled": false
 }

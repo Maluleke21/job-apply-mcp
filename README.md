@@ -72,3 +72,58 @@ Copy `workday_profile.example.json` to `workday_profile.json` and replace every 
 ## What has been verified
 
 The offline workflow test checks stale-listing rejection, email versus manual routing, attachment bytes, duplicate suppression and the daily cap with a simulated SMTP server. A Windows installation authenticated to Gmail and completed a scheduled scan. A user verified that the Workday pilot recognised Review and stopped on a live draft. End-to-end automated browser upload, field correction and employer delivery are unverified.
+
+## Scheduled Workday drafts
+
+The separate Workday worker scans FirstRand, Betway Africa and Absa by default. Set
+`workday_boards` to a list of public Workday board URLs to change these seeds.
+Set the optional BRAVE_SEARCH_API_KEY environment variable for the scheduled
+Windows user to discover additional indexed employer boards by configured
+location. Discovered boards are retained in workday.sqlite3. Search indexing,
+public board availability, pagination and employer-specific forms affect coverage.
+
+Install the worker dependencies with `.\.venv\Scripts\python.exe -m pip install -r requirements-workday.txt`, then run `.\.venv\Scripts\python.exe -m playwright install chromium`. In local settings.json add
+`"workday_enabled": true`. The worker reuses cv, locations, exclude_titles,
+max_age_hours, sender and SMTP settings. Set `workday_titles` to a list of
+phrases for any role family, or [] for every title passing the exclusions.
+Omitting it combines your existing titles with software developer, data engineering, data analysis, business intelligence, AI/ML and QA role titles. Existing Gmail credentials are reused.
+Alerts go to sender unless workday_notify_to specifies another candidate mailbox.
+Optional workday_answers maps exact English field labels to the answers you
+have approved for use across employers. Only use universally applicable answers.
+The optional workday_profile.json supplies the existing experience corrections.
+
+From the project folder (Windows PowerShell):
+
+```powershell
+.\.venv\Scripts\python.exe workday.py login https://firstrand.wd3.myworkdayjobs.com/FRB
+.\.venv\Scripts\python.exe workday.py scan
+.\.venv\Scripts\python.exe workday.py history
+.\schedule.ps1
+```
+
+Use login per employer as needed. Sessions stay in the local worker browser
+profile. Run schedule.ps1 again after changing which workers are enabled.
+The task scans every four hours while signed in and the computer can run.
+Use workday.py server for MCP tools prepare_workday_drafts and workday_history.
+The default workday_batch_size is ten drafts per scan. Checks use the posting's
+calendar date, since public postings can omit an exact time.
+
+A Review email identifies the employer tenant, title and reference and links
+to the posting. Sign into the same candidate account and choose Continue
+Application to reopen the saved draft. A Needs attention email reports an
+unsupported step, missing answer or sign-in requirement. The next scan can
+resume a blocked draft. Mail failures leave the alert pending for retry.
+No Submit button is clicked. A ready draft is not counted as an application sent.
+
+### Vacancy-specific CVs
+
+Set cv to the path of your text-based master PDF and name to your name in
+settings.json. The worker ranks text excerpts from this PDF against the role
+title and description. It prepends a highlights page and retains the original
+pages. A missing master, no matching evidence or an oversized result produces
+a Needs attention alert. Generated PDFs are archived locally in workday-cvs/
+and reused on retries. The Review email includes the archived file after its
+SHA-256 hash is verified. Keep that folder alongside workday.sqlite3.
+If Review opens on an existing draft and the worker cannot identify its CV,
+the email asks you to verify it. Employer sessions, live forms, SMTP delivery,
+and Windows Task Scheduler require validation on your machine.

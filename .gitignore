@@ -12,3 +12,4 @@ settings.json
 playwright/.auth/
 workday_profile.json
 *.sqlite3-*
+workday-cvs/
