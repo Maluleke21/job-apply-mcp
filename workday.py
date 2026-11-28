@@ -8,6 +8,7 @@ import re
 import smtplib
 import sqlite3
 import ssl
+import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -75,9 +76,22 @@ def listings(board, cfg):
     host, site = urlsplit(board).netloc, urlsplit(board).path.strip("/")
     api = f"https://{host}/wday/cxs/{host.split('.')[0]}/{site}"
     cutoff = datetime.now(timezone.utc) - timedelta(hours=cfg["max_age_hours"])
+    requests = 0
+
+    def fetch(label, url, payload=None):
+        nonlocal requests
+        if requests:
+            time.sleep(1)
+        requests += 1
+        try:
+            return get_json(url, payload)
+        except HTTPError as exc:
+            exc.add_note(f"Board request {requests}: {label}")
+            raise
+
     offset = 0
     while True:
-        data = get_json(api + "/jobs", {"limit": 20, "offset": offset, "searchText": "", "appliedFacets": {}})
+        data = fetch(f"listings offset {offset}", api + "/jobs", {"limit": 20, "offset": offset, "searchText": "", "appliedFacets": {}})
         rows = data["jobPostings"]
         for row in rows:
             title, path = row["title"], row["externalPath"]
@@ -89,7 +103,7 @@ def listings(board, cfg):
             titles = cfg.get("workday_titles", [*cfg["titles"], *CAREER_TITLES])
             if (titles and not matches(title, titles)) or matches(title, cfg["exclude_titles"]):
                 continue
-            info = get_json(api + path)["jobPostingInfo"]
+            info = fetch(f"vacancy details at listing offset {offset}", api + path)["jobPostingInfo"]
             place = " ".join(filter(None, [info.get("location"), row.get("locationsText"),
                                             *(info.get("additionalLocations") or [])]))
             if not matches(place, cfg["locations"]):
@@ -269,7 +283,8 @@ def scan_boards(db, cfg, errors, only_board=None):
                 with db:
                     db.execute("INSERT OR REPLACE INTO cooldowns VALUES (?,?)", (board, int(retry.timestamp())))
                 deferred[board] = retry.isoformat()
-            errors.append(f"{board}: HTTP {exc.code} {exc.reason}")
+            context = " ".join(getattr(exc, "__notes__", ()))
+            errors.append(f"{board}: HTTP {exc.code} {exc.reason} {context}".rstrip())
         except Exception as exc:
             errors.append(f"{board}: {type(exc).__name__}")
     return deferred
